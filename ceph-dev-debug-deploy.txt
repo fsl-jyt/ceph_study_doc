@@ -1,0 +1,831 @@
+=============================================
+	CEPH dev env
+=============================================
+software env:
+CentOS-7.5-hxt-20180907-0.iso (4.14.62-4.hxt.aarch64)
+
+1. Install various packages
+##install the high version toolchain
+yum install -y net-tools vim git wget scl-utils scl-utils-build tree
+yum install -y centos-release-scl
+sed -i "s/mirror/buildlogs/g" /etc/yum.repos.d/CentOS-SCLo-scl.repo
+sed -i "s/mirror/buildlogs/g" /etc/yum.repos.d/CentOS-SCLo-scl-rh.repo
+yum install -y devtoolset-7
+yum install -y /var/cache/yum/aarch64/7/centos-sclo-rh/packages/*.rpm
+scl enable devtoolset-7 bash
+gcc --version
+
+## other rpms
+yum install -y python-devel make cmake lsof ncurses-devel openssl-devel bc tar kernel-devel m4 xmlto asciidoc openssl hmaccalc elfutils-devel binutils-devel bison audit-libs-devel pciutils-devel redhat-rpm-config rpm-build yum-utils rpmdevtools pesign numactl-devel perl-ExtUtils-Embed mtools kexec-tools createrepo mtools yum-utils rpmdevtools pesign acpidump newt-devel gettext autoconf SDL-devel libfdt automake libtool ipmitool usbutils pciutils i2c-tools dmidecode smartmontools tcl tcsh tk gtk2 atk cairo libxml2-python fio lspci babel systemd-devel Cython gperf xfsprogs-devel 
+yum install -y ansible npm 
+yum install -y zlib* glib* libffi* libblkid* openldap* libaio* snappy* lz4* curl* libcurl* expat* nss* fuse-* librbd1* 
+yum install -y perl perl-Devel* perl-ExtUtils* perl-lib* python python-devel python-virtualenv  python-lib* python-sphinx*
+yum install -y CUnit* userspace-rcu* liboath* leveldb* libbabeltrace* lttng-tools* lttng-ust* 
+##rpmbuild required:
+yum install -y java-devel sharutils selinux-policy-devel jq libxml2-devel valgrind-devel xmlstarlet yasm boost-random python34-devel python34-setuptools python34-Cython junit gperftools-devel python-prettytable libibverbs* 
+##phantomjs required:
+yum install -y qpid-qmf ruby ruby-devel-* ruby-lib* libicu-devel icu libicu* qt qt-devel qt5-qtbase*
+
+2. get ceph source
+git clone https://github.com/ceph/ceph.git
+cd ceph
+git checkout v13.2.1
+
+3. build and compile ceph
+#scl enable devtoolset-7 bash
+#gcc --version
+#vim README.md
+./install-deps.sh		--It takes about 10 minutes
+rm -rf build
+./do_cmake.sh			--It takes about 30 minutes
+cd build
+make -j40				--It takes about 20 minutes
+#make install
+
+## compile phantomjs
+#scl enable devtoolset-7 bash
+#gcc --version
+git clone git://github.com/ariya/phantomjs.git
+git checkout -b 2.1 origin/2.1
+#yum install -y qpid-qmf ruby ruby-devel-* ruby-lib* libicu-devel icu libicu* qt qt-devel qt5-qtbase*
+./build.py				--It takes about 50 minutes
+bin/phantomjs --version
+cp bin/phantomjs /usr/local/bin
+
+## cd /.../ceph folder
+## check the node version, current is 6.14.0, then change the devDependencies version...
+## else need clean and update node-sass: src/pybind/mgr/dashboard/frontend/node_modules/node-sass
+node -v
+sed -i "s/8.10.0/6.14.0/g" make-dist		==> $TEMP_DIR/bin/nodeenv -p -n 8.10.0 => 6.14.0
+sed -i "s/8.10.0/6.14.0/g" src/pybind/mgr/dashboard/CMakeLists.txt		==> COMMAND ${mgr-dashboard-nodeenv}/bin/nodeenv -p -n 8.10.0 => 6.14.0
+grep -r "6.14.0" make-dist
+grep -r "6.14.0" src/pybind/mgr/dashboard/CMakeLists.txt
+./make-srpm.sh			--It takes about 30 minutes
+
+## get the ceph-13.2.1-0.el7.centos.a.src.rpm, ceph-13.2.1.tar.bz2 and ceph.spec
+## if have any other patch apply into the ceph source, maybe get the name as:
+## ceph-13.2.1-1.g2b7c06d.el7.centos.a.src.rpm , ceph-13.2.1-1-g2b7c06d.tar.bz2
+
+tree /root/rpmbuild
+mkdir /root/rpmbuild/SOURCES /root/rpmbuild/SPECS
+cp ceph-13.2.1.tar.bz2 /root/rpmbuild/SOURCES
+cp ceph.spec /root/rpmbuild/SPECS
+cd /root/rpmbuild
+#scl enable devtoolset-7 bash
+#gcc --version
+#mask this line of SPECS/ceph.spec: BuildRequires:        libibverbs-devel
+sed -i "s/BuildRequires:\tlibibverbs-devel/#BuildRequires:\tlibibverbs-devel/g" SPECS/ceph.spec
+grep -r "libibverbs-devel" SPECS/ceph.spec
+#yum install -y java-devel sharutils selinux-policy-devel jq libxml2-devel valgrind-devel xmlstarlet yasm boost-random python34-devel python34-setuptools python34-Cython junit gperftools-devel python-prettytable libibverbs* 
+rpmbuild -ba --target=`uname -m` SPECS/ceph.spec		--It takes about 30 minutes
+## get all of ceph rpms list:
+ls -l RPMS/aarch64 SRPMS
+
+
+=============================================
+	CEPH rpms install and single SSD demo
+=============================================
+hardware env:
+1 HXT SDP dev board
+2 SSD(one for OS, another for CEPH demo)
+software env:
+CentOS-7.5-hxt-20180907-0.iso (4.14.62-4.hxt.aarch64)
+
+1. install CentOS 7.5 (4.14.62-4.hxt.aarch64), then set network and hostname:
+## install the CentOS-7.5-hxt-20180907-0.iso ...
+dhclient eth0
+## open /etc/sysconfig/network-scripts/ifcfg-eth0 then set ONBOOT=yes:
+ONBOOT=yes
+
+## set hostname
+hostnamectl set-hostname jyt-sdp1
+## get ip(10.64.4.225)
+ip addr
+## open /etc/hosts then add the ip and hostname:
+10.64.4.225 jyt-sdp1
+127.0.0.1   localhost localhost.localdomain localhost4 localhost4.localdomain4
+::1         localhost localhost.localdomain localhost6 localhost6.localdomain6
+## reboot the OS
+reboot
+
+2. get ceph rpms and install them:
+yum install -y net-tools vim git ansible fio
+## cd /.../ceph-13.2.1-rpms
+yum install -y ./*.rpm
+
+## ceph rpms list:
+#ceph-13.2.1-0.el7.centos.a.src.rpm
+#ceph-debuginfo-13.2.1-0.el7.centos.a.aarch64.rpm
+ceph-13.2.1-0.el7.centos.a.aarch64.rpm
+ceph-base-13.2.1-0.el7.centos.a.aarch64.rpm
+ceph-common-13.2.1-0.el7.centos.a.aarch64.rpm
+cephfs-java-13.2.1-0.el7.centos.a.aarch64.rpm
+ceph-fuse-13.2.1-0.el7.centos.a.aarch64.rpm
+ceph-mds-13.2.1-0.el7.centos.a.aarch64.rpm
+ceph-mgr-13.2.1-0.el7.centos.a.aarch64.rpm
+ceph-mon-13.2.1-0.el7.centos.a.aarch64.rpm
+ceph-osd-13.2.1-0.el7.centos.a.aarch64.rpm
+ceph-radosgw-13.2.1-0.el7.centos.a.aarch64.rpm
+ceph-resource-agents-13.2.1-0.el7.centos.a.aarch64.rpm
+ceph-selinux-13.2.1-0.el7.centos.a.aarch64.rpm
+ceph-test-13.2.1-0.el7.centos.a.aarch64.rpm
+libcephfs2-13.2.1-0.el7.centos.a.aarch64.rpm
+libcephfs-devel-13.2.1-0.el7.centos.a.aarch64.rpm
+libcephfs_jni1-13.2.1-0.el7.centos.a.aarch64.rpm
+libcephfs_jni-devel-13.2.1-0.el7.centos.a.aarch64.rpm
+librados2-13.2.1-0.el7.centos.a.aarch64.rpm
+librados-devel-13.2.1-0.el7.centos.a.aarch64.rpm
+libradosstriper1-13.2.1-0.el7.centos.a.aarch64.rpm
+libradosstriper-devel-13.2.1-0.el7.centos.a.aarch64.rpm
+librbd1-13.2.1-0.el7.centos.a.aarch64.rpm
+librbd-devel-13.2.1-0.el7.centos.a.aarch64.rpm
+librgw2-13.2.1-0.el7.centos.a.aarch64.rpm
+librgw-devel-13.2.1-0.el7.centos.a.aarch64.rpm
+python34-ceph-argparse-13.2.1-0.el7.centos.a.aarch64.rpm
+python34-cephfs-13.2.1-0.el7.centos.a.aarch64.rpm
+python34-rados-13.2.1-0.el7.centos.a.aarch64.rpm
+python34-rbd-13.2.1-0.el7.centos.a.aarch64.rpm
+python34-rgw-13.2.1-0.el7.centos.a.aarch64.rpm
+python-ceph-compat-13.2.1-0.el7.centos.a.aarch64.rpm
+python-cephfs-13.2.1-0.el7.centos.a.aarch64.rpm
+python-rados-13.2.1-0.el7.centos.a.aarch64.rpm
+python-rbd-13.2.1-0.el7.centos.a.aarch64.rpm
+python-rgw-13.2.1-0.el7.centos.a.aarch64.rpm
+rados-objclass-devel-13.2.1-0.el7.centos.a.aarch64.rpm
+rbd-fuse-13.2.1-0.el7.centos.a.aarch64.rpm
+rbd-mirror-13.2.1-0.el7.centos.a.aarch64.rpm
+rbd-nbd-13.2.1-0.el7.centos.a.aarch64.rpm
+
+3. other preparations
+systemctl disable firewalld
+systemctl stop firewalld
+#firewall-cmd --zone=public --add-service=ceph-mon --permanent
+#firewall-cmd --zone=public --add-service=ceph --permanent
+#firewall-cmd --reload
+sed -i 's/SELINUX=enforcing/SELINUX=disabled/g' /etc/selinux/config
+#systemctl stop ntpd.service
+#ntpdate cn.pool.ntp.org
+#hwclock --systohc
+#systemctl enable ntpd.service
+#systemctl start ntpd.service
+ssh-keygen
+ssh-copy-id root@jyt-sdp1
+
+4. deploy the ceph by ceph-ansible-hxt
+##git clone https://github.com/herbert-li/ceph-ansible-hxt
+##git am 0001-debug-ceph-0820.patch
+## or
+git clone https://github.com/fsl-jyt/ceph-ansible-hxt.git
+git checkout -b debug0820 origin/debug0820
+## check the last patch to change files if on a new host:
+##physical_machine/deployment-vars
+##physical_machine/host_vars/jyt-sdp1
+##physical_machine/hosts
+##roles/ceph/tasks/osd.yml
+##roles/ceph/templates/ceph.conf
+
+parted -l
+dd if=/dev/zero  of=/dev/sdb bs=1000M count=10
+parted -s /dev/sdb mklabel gpt mkpart primary xfs 0% 100%
+parted -l
+ansible-playbook --user=root -K -v -i ./physical_machine/hosts ./site-physical-machine.yml --tags ceph-mon
+ceph daemon mon.jyt-sdp1 mon_status
+## 13.2.1 have ceph-disk cmd, but 14.0.0.x not have it. first install 13.2.1 then force install 14.0.0.x : rpm -i *.rpm --force --nodeps
+ansible-playbook --user=root -K -v -i ./physical_machine/hosts ./site-physical-machine.yml --extra-vars 'ceph_force_prepare=true' --tags ceph-osd
+ceph -s
+ceph osd pool delete images images --yes-i-really-really-mean-it
+ceph osd pool delete vms vms --yes-i-really-really-mean-it
+ceph osd pool delete volumes volumes --yes-i-really-really-mean-it
+ceph -s
+ceph osd pool create test_pool 128 128
+rbd create test_pool/test_image --size 5G
+ceph -s
+
+5. do the fio test
+fio prepare.fio
+fio test_4krandread.fio
+
+##fio config files setting:
+[root@jyt-sdp1 fio]# cat prepare.fio
+[global]
+direct=1
+iodepth_batch_complete=1
+ioengine=rbd
+clientname=admin
+pool=test_pool
+rbdname=test_image
+rw=write
+bs=1024k
+loops=2
+norandommap=1
+randrepeat=0
+[rbd_iodepth]
+iodepth=1
+[root@jyt-sdp1 fio]#
+[root@jyt-sdp1 fio]# cat test_64krandread.fio
+[global]
+direct=1
+iodepth_batch_complete=1
+ioengine=rbd
+clientname=admin
+pool=test_pool
+rbdname=test_image
+rw=randread
+bs=64k
+time_based
+runtime=300
+#ramp_time=30
+norandommap=1
+randrepeat=0
+[rbd_iodepth]
+iodepth=256
+[root@jyt-sdp1 fio]#
+[root@jyt-sdp1 fio]# cat test_4krandread.fio
+[global]
+direct=1
+iodepth_batch_complete=1
+ioengine=rbd
+clientname=admin
+pool=test_pool
+rbdname=test_image
+rw=randread
+bs=4k
+time_based
+runtime=300
+#ramp_time=30
+norandommap=1
+randrepeat=0
+[rbd_iodepth]
+iodepth=256
+[root@jyt-sdp1 fio]#
+
+6. check the mem of ceph-osd
+run top, then press [shift + ">"] to find the column VIRT and RES of ceph-osd process
+
+7. if ceph node have any issue need re-build demo env:
+ceph-deploy purge jyt-sdp1
+ceph-deploy purgedata jyt-sdp1
+ceph-deploy forgetkeys
+rm -rf /var/lib/ceph
+rm -rf /etc/systemd/system/multi-user.target.wants/ceph-mon.target
+rm -rf /etc/systemd/system/ceph*
+reboot
+rm -rf /etc/systemd/system/ceph*
+mkdir /var/lib/ceph ; cd /var/lib/ceph ; mkdir bootstrap-mds  bootstrap-mgr  bootstrap-osd  bootstrap-rbd  bootstrap-rgw  mds  mgr  mon  osd  radosgw  tmp
+chmod 777 /var/lib/ceph -R
+## go to step4 and run again: deploy the ceph by ceph-ansible-hxt
+
+
+=============================================
+	CEPH common commands
+=============================================
+ceph daemon mon.jyt-sdp1 mon_status
+ceph -s
+ceph osd df tree
+ceph osd tree
+rados df
+ceph osd pool delete images images --yes-i-really-really-mean-it
+ceph osd pool delete vms vms --yes-i-really-really-mean-it
+ceph osd pool delete volumes volumes --yes-i-really-really-mean-it
+ceph -s
+ceph osd pool create test_pool 128 128
+rbd create test_pool/test_image --size 5G
+ceph -s
+rados df
+ceph iostat
+
+ceph tell osd.0 heap start_profiler
+ceph tell osd.0 heap dump
+ceph tell osd.0 heap stats
+ceph tell osd.0 heap release
+...
+ceph tell osd.0 heap stats
+ceph tell osd.0 heap release
+#pprof --text /usr/bin/ceph-osd /var/log/ceph/ceph-osd.0.profile.0001.heap
+#pprof --text --base /var/log/ceph/ceph-osd.0.profile.0001.heap /usr/bin/ceph-osd /var/log/ceph/ceph-osd.0.profile.0002.heap
+ceph tell osd.0 heap stop_profiler
+
+
+=============================================
+	valgrind debug ceph
+=============================================
+##默认安装的arm64的valgrind，没有massif的tool支持，需要自己单独编译
+wget ftp://sourceware.org/pub/valgrind/valgrind-3.13.0.tar.bz2
+tar -jxf valgrind-3.13.0.tar.bz2
+cd valgrind-3.13.0
+#scl enable devtoolset-7 bash
+./autogen.sh ; ./configure --prefix=/usr/local --host=aarch64-unknown-linux --enable-only64bit ; make ; make install
+##check which is the default valgrind
+#whereis valgrind
+#echo $PATH
+
+valgrind ls -l
+valgrind --tool=memcheck --leak-check=full --log-file=ls-l.log -v ls -l
+vim ls-l.log
+#objdump -x a.out > a.out.x
+#objdump -S a.out > a.out.s
+#vim a.out.s
+
+valgrind --tool=massif ls -l
+ms_print massif.out.44759 > massif.out.44759.pri
+vim massif.out.44759.pri
+
+------------------------------------------------------------------------------------------
+------------------------------------------------------------------------------------------
+
+[root@jyt-sdp1 c]# cat test_free.c
+#include <stdlib.h>
+
+int main()
+{
+char *x = (char*)malloc(20);
+char *y = (char*)malloc(20);
+char *z = (char*)malloc(20);
+
+x=y;
+y=z;
+x=y;
+free(x);
+//free(y);
+
+return 0;
+}
+[root@jyt-sdp1 c]# gcc test_free.c
+[root@jyt-sdp1 c]# objdump -S a.out > a.out.s
+[root@jyt-sdp1 c]#
+[root@jyt-sdp1 c]# valgrind --leak-check=full ./a.out
+==18986== Memcheck, a memory error detector
+==18986== Copyright (C) 2002-2017, and GNU GPL'd, by Julian Seward et al.
+==18986== Using Valgrind-3.13.0 and LibVEX; rerun with -h for copyright info
+==18986== Command: ./a.out
+==18986==
+==18986==
+==18986== HEAP SUMMARY:
+==18986==     in use at exit: 40 bytes in 2 blocks
+==18986==   total heap usage: 3 allocs, 1 frees, 60 bytes allocated
+==18986==
+==18986== 20 bytes in 1 blocks are definitely lost in loss record 1 of 2
+==18986==    at 0x4873D98: malloc (vg_replace_malloc.c:299)
+==18986==    by 0x40065F: main (in /home/ceph/c/a.out)
+==18986==
+==18986== 20 bytes in 1 blocks are definitely lost in loss record 2 of 2
+==18986==    at 0x4873D98: malloc (vg_replace_malloc.c:299)
+==18986==    by 0x40066B: main (in /home/ceph/c/a.out)
+==18986==
+==18986== LEAK SUMMARY:
+==18986==    definitely lost: 40 bytes in 2 blocks
+==18986==    indirectly lost: 0 bytes in 0 blocks
+==18986==      possibly lost: 0 bytes in 0 blocks
+==18986==    still reachable: 0 bytes in 0 blocks
+==18986==         suppressed: 0 bytes in 0 blocks
+==18986==
+==18986== For counts of detected and suppressed errors, rerun with: -v
+==18986== ERROR SUMMARY: 2 errors from 2 contexts (suppressed: 0 from 0)
+[root@jyt-sdp1 c]#
+[root@jyt-sdp1 c]# valgrind --tool=memcheck --leak-check=full --log-file=test_free.log -v ./a.out
+[root@jyt-sdp1 c]# cat test_free.log
+。。。。。。
+[root@jyt-sdp1 c]# 
+[root@jyt-sdp1 c]# valgrind --tool=massif  ./a.out
+==19038== Massif, a heap profiler
+==19038== Copyright (C) 2003-2017, and GNU GPL'd, by Nicholas Nethercote
+==19038== Using Valgrind-3.13.0 and LibVEX; rerun with -h for copyright info
+==19038== Command: ./a.out
+==19038==
+==19038==
+[root@jyt-sdp1 c]# ms_print massif.out.19038 > massif.out.19038.pri
+[root@jyt-sdp1 c]# cat massif.out.19038.pri
+--------------------------------------------------------------------------------
+Command:            ./a.out
+Massif arguments:   (none)
+ms_print arguments: massif.out.19038
+--------------------------------------------------------------------------------
+
+
+     B
+  120^                                                                       #
+     |                                                                       #
+     |                                                                       #
+     |                                                                       #
+     |                                                                       #
+     |                                                                       #
+     |                                                                       #
+     |                                                                       #
+     |                                                                       #
+     |                                                                       #
+     |                                                                       #
+     |                                                                       #
+     |                                                                       #
+     |                                                                       #
+     |                                                                       #
+     |                                                                       #
+     |                                                                       #
+     |                                                                       #
+     |                                                                       #
+     |                                                                       #
+   0 +----------------------------------------------------------------------->ki
+     0                                                                   94.89
+
+Number of snapshots: 6
+ Detailed snapshots: [4 (peak)]
+
+--------------------------------------------------------------------------------
+  n        time(i)         total(B)   useful-heap(B) extra-heap(B)    stacks(B)
+--------------------------------------------------------------------------------
+  0              0                0                0             0            0
+  1         96,177               40               20            20            0
+  2         96,221               80               40            40            0
+  3         96,265              120               60            60            0
+  4         97,168              120               60            60            0
+50.00% (60B) (heap allocation functions) malloc/new/new[], --alloc-fns, etc.
+->16.67% (20B) 0x40065E: main (in /home/ceph/c/a.out)
+|
+->16.67% (20B) 0x40066A: main (in /home/ceph/c/a.out)
+|
+->16.67% (20B) 0x400676: main (in /home/ceph/c/a.out)
+
+--------------------------------------------------------------------------------
+  n        time(i)         total(B)   useful-heap(B) extra-heap(B)    stacks(B)
+--------------------------------------------------------------------------------
+  5         97,168               80               40            40            0
+[root@jyt-sdp1 c]#
+
+------------------------------------------------------------------------------------------
+------------------------------------------------------------------------------------------
+
+##如果运行正常的ceph-osd，后台进程没有正常退出机制，通过ctl+c或者kill杀掉对应进程时，log文件往往来不及解码转存或者保存不完整。
+##本节后边给出了一个在ceph-osd源码中增加定时5分钟就退出的patch，编译后用valgrind运行它，然后运行fio读性能测试程序，5分钟后ceph-osd定时期满退出，log就正常的保存下来了。
+##如果运行时间较长导致massif-out-file文件较大时，valgrind退出时也可能来不及时把log文件写入磁盘，往往导致文件保存不下来就出错退出了。直接把log文件指定存到内存里就可以绕过这个问题了。
+
+# ps -elf | grep ceph-osd
+4 S root       19108       1  0  80   0 -  4682 futex_ 14:49 ?        00:00:00 /usr/bin/ceph-osd -f --cluster ceph --id 0 --setuser ceph --setgroup ceph
+0 S root       19149    2561  0  80   0 -  1727 pipe_w 14:52 pts/0    00:00:00 grep --color=auto ceph-osd
+#
+##参考ceph-osd的执行命令行参数，提前准备好valgrind。。。的命令行。杀掉ceph-osd进程后要立刻执行valgrind。。。的命令行，否则ceph-osd进程会被自动重启
+# kill -9 19108
+# valgrind --tool=massif --massif-out-file=/dev/shm/massif.out.ceph-osd20180809 /usr/bin/ceph-osd -f --cluster ceph --id 0 --setuser ceph --setgroup ceph
+##新开另一个终端执行fio读性能测试
+# fio test_4krandread.fio
+##valgrind --tool=massif 。。。执行完后会在当前目录下生成massif.out.xxxxx的内存信息采集log文件
+# ms_print massif.out.xxxxx > massif.out.xxxxx.pri
+# vim massif.out.xxxxx.pri
+
+# valgrind --tool=memcheck --leak-check=full --show-leak-kinds=all --track-origins=yes --error-limit=no --time-stamp=yes -v --log-file=memcheck.log /usr/bin/ceph-osd -f --cluster ceph --id 0 --setuser ceph --setgroup ceph
+# vim memcheck.log
+
+
+##通过浏览和分析massif.out.xxxxx.pri的内容得知，ceph-osd进程在执行期间下面的函数调用栈出现多次，并申请到了大量内存。
+##跟踪源代码得知，从read到create_aligned_in_mempool之间调用了create_aligned(len, CEPH_PAGE_SIZE);这里的CEPH_PAGE_SIZE取自OS的page size，在arm64下默认是64k，
+##若在性能测试读取4k小包时分配64k对齐内存，将造成大量的内存浪费。听取社区意见并通读相关源码后，采用根据申请内存长度和当前page size大小相比较的方式，在分配内存时对大小页对齐进行分流，从而解决了该问题。
+--------------------------------------------------------------------------------
+  n        time(i)         total(B)   useful-heap(B) extra-heap(B)    stacks(B)
+--------------------------------------------------------------------------------
+ 47 16,317,237,817    1,024,079,000      723,199,569   300,879,431            0
+70.62% (723,199,569B) (heap allocation functions) malloc/new/new[], --alloc-fns, etc.
+->57.04% (584,089,600B) 0x4AA83F6: ceph::buffer::create_aligned_in_mempool(unsigned int, unsigned int, int) (buffer.cc:389)
+| ->56.83% (581,992,448B) 0x9BA486: KernelDevice::read(unsigned long, unsigned long, ceph::buffer::list*, IOContext*, bool) (KernelDevice.cc:814)
+| | ->56.83% (581,992,448B) 0x8CC742: BlueStore::_do_read(BlueStore::Collection*, boost::intrusive_ptr<BlueStore::Onode>, unsigned long, unsigned long, ceph::buffer::list&, unsigned int) (BlueStore.cc:7342)
+| | | ->56.83% (581,992,448B) 0x8CDF26: BlueStore::read(boost::intrusive_ptr<ObjectStore::CollectionImpl>&, ghobject_t const&, unsigned long, unsigned long, ceph::buffer::list&, unsigned int) (BlueStore.cc:7113)
+| | |   ->56.83% (581,988,352B) 0x75BEDE: ReplicatedBackend::objects_read_sync(hobject_t const&, unsigned long, unsigned long, unsigned int, ceph::buffer::list*) (ReplicatedBackend.cc:253)
+| | |   | ->56.83% (581,988,352B) 0x5E65B6: PrimaryLogPG::do_read(PrimaryLogPG::OpContext*, OSDOp&) (PrimaryLogPG.cc:5440)
+| | |   |   ->56.83% (581,988,352B) 0x628AFA: PrimaryLogPG::do_osd_ops(PrimaryLogPG::OpContext*, std::vector<OSDOp, std::allocator<OSDOp> >&) (PrimaryLogPG.cc:5733)
+| | |   |     ->56.83% (581,984,256B) 0x6359A6: PrimaryLogPG::prepare_transaction(PrimaryLogPG::OpContext*) (PrimaryLogPG.cc:8240)
+| | |   |     | ->56.83% (581,984,256B) 0x6360CE: PrimaryLogPG::execute_ctx(PrimaryLogPG::OpContext*) (PrimaryLogPG.cc:3868)
+| | |   |     |   ->56.83% (581,984,256B) 0x63A5A2: PrimaryLogPG::do_op(boost::intrusive_ptr<OpRequest>&) (PrimaryLogPG.cc:2385)
+| | |   |     |     ->56.83% (581,984,256B) 0x63DF5E: PrimaryLogPG::do_request(boost::intrusive_ptr<OpRequest>&, ThreadPool::TPHandle&) (PrimaryLogPG.cc:1817)
+| | |   |     |       ->56.83% (581,984,256B) 0x4AD8BA: OSD::dequeue_op(boost::intrusive_ptr<PG>, boost::intrusive_ptr<OpRequest>, ThreadPool::TPHandle&) (OSD.cc:8895)
+| | |   |     |         ->56.83% (581,984,256B) 0x70983A: PGOpItem::run(OSD*, OSDShard*, boost::intrusive_ptr<PG>&, ThreadPool::TPHandle&) (OpQueueItem.cc:24)
+| | |   |     |           ->56.83% (581,984,256B) 0x4C9BBE: OSD::ShardedOpWQ::_process(unsigned int, ceph::heartbeat_handle_d*) (OpQueueItem.h:134)
+| | |   |     |             ->56.83% (581,984,256B) 0x4AFDAFA: ShardedThreadPool::shardedthreadpool_worker(unsigned int) (WorkQueue.cc:339)
+| | |   |     |               ->56.83% (581,984,256B) 0x4AFE696: ShardedThreadPool::WorkThreadSharded::entry() (WorkQueue.h:690)
+| | |   |     |                 ->56.83% (581,984,256B) 0xDC44BB6: start_thread (in /usr/lib64/libpthread-2.17.so)
+| | |   |     |                   ->56.83% (581,984,256B) 0xDFACB4E: thread_start (in /usr/lib64/libc-2.17.so)
+。。。。。。
+
+##########################################################################################
+## 给ceph-osd源码增加一个定时5分钟退出的功能
+##########################################################################################
+[root@jyt-sdp1 ceph]# cat add-SIGALRM-hander-for-debug.patch
+From 8b7faf578985cd2075e9bb3535adca760d1ecead Mon Sep 17 00:00:00 2001
+From: Jiang Yutang <yutang2.jiang@hxt-semitech.com>
+Date: Wed, 22 Aug 2018 14:45:31 +0800
+Subject: [PATCH 2/4] add SIGALRM hander for debug
+
+Signed-off-by: Jiang Yutang <yutang2.jiang@hxt-semitech.com>
+---
+ src/ceph_osd.cc | 24 ++++++++++++++++++++++++
+ 1 file changed, 24 insertions(+)
+
+diff --git a/src/ceph_osd.cc b/src/ceph_osd.cc
+index d3fe2e1..d706ec9 100644
+--- a/src/ceph_osd.cc
++++ b/src/ceph_osd.cc
+@@ -12,6 +12,7 @@
+  *
+  */
+
++#include <sys/time.h>
+ #include <sys/types.h>
+ #include <sys/stat.h>
+ #include <fcntl.h>
+@@ -72,6 +73,13 @@ void handle_osd_signal(int signum)
+     osd->handle_signal(signum);
+ }
+
++void handle_osd_signal_jyt_alarm(int signum)
++{
++  cout << "-----jyt: handle_osd_signal_jyt_alarm\n"
++       << std::endl;
++  exit(0);
++}
++
+ static void usage()
+ {
+   cout << "usage: ceph-osd -i <ID> [flags]\n"
+@@ -678,6 +686,22 @@ flushjournal_out:
+   register_async_signal_handler_oneshot(SIGINT, handle_osd_signal);
+   register_async_signal_handler_oneshot(SIGTERM, handle_osd_signal);
+
++
++  struct itimerval tv;
++  register_async_signal_handler_oneshot(SIGALRM, handle_osd_signal_jyt_alarm);
++  tv.it_value.tv_sec = 300;
++  tv.it_value.tv_usec = 0;
++  tv.it_interval.tv_sec = 300;
++  tv.it_interval.tv_usec = 0;
++  if(setitimer(ITIMER_REAL, &tv,0 )){
++    cout << "-----jyt: Fail to set timer..."
++    << std::endl;
++    return false;
++  }
++  cout << "-----jyt: set timer sec: 300"
++       << std::endl;
++
++
+   osd->final_init();
+
+   if (g_conf->get_val<bool>("inject_early_sigterm"))
+--
+1.8.3.1
+
+[root@jyt-sdp1 ceph]#
+
+
+=============================================
+	note
+=============================================
+
+1. check depend lib
+ps -elf | grep ceph-osd
+ldd /usr/bin/ceph-osd
+ldd /usr/bin/ceph-osd | grep tcmalloc
+objdump -p /usr/bin/ceph-osd |grep NEEDED | grep tcmalloc
+pldd <PID> | grep tcmalloc
+pmap <PID> | grep tcmalloc
+cat /proc/<PID>/status
+#export LD_PRELOAD="/usr/lib/libtcmalloc.so"
+#lsof |grep -i libtcmalloc.so
+
+
+2. compile cmake
+##ceph 14.0.0.x require high cmake version
+##https://gitlab.kitware.com/cmake/cmake
+git clone https://gitlab.kitware.com/cmake/cmake.git
+#scl enable devtoolset-7 bash
+cd cmake
+./bootstrap --prefix=/usr && make -j40 && make install
+
+
+3. compile libunwind
+git clone https://github.com/libunwind/libunwind.git
+#scl enable devtoolset-7 bash
+./autogen.sh
+./configure
+make -j40
+make install prefix=/usr/local
+
+
+4. compile gperftools
+git clone https://github.com/gperftools/gperftools.git
+#scl enable devtoolset-7 bash
+./autogen.sh
+./configure
+#./configure with_tcmalloc_pagesize=64
+#./configure with_tcmalloc_pagesize=4
+make -j40
+make install prefix=/usr/local
+#find / -name libtcmalloc_and_profiler.la
+
+#cat /etc/ld.so.conf		include ld.so.conf.d/*.conf
+echo "/usr/local/lib" > /etc/ld.so.conf.d/aaa-hxt-ceph-aarch64.conf
+ldconfig
+
+============================================= ============================================= =============================================
+============================================= ============================================= =============================================
+#rpm2cpio xxx.rpm | cpio -ivd
+#rpm -ivh *.rpm --force --nodeps
+#yum install -y ./*.rpm
+
+wget https://download.opensuse.org/ports/aarch64/distribution/leap/42.3/iso/openSUSE-Leap-42.3-DVD-aarch64-Build0200-Media.iso
+
+
+##看起来不添加这些参数也没啥影响
+## cat /etc/rc.local
+#echo 5000 > /sys/class/net/enp1s0/mtu
+echo 4194303 > /proc/sys/kernel/pid_max
+echo 26234895 > /proc/sys/fs/file-max
+echo "8192" > /sys/block/sda/queue/read_ahead_kb
+echo "8192" > /sys/block/sdb/queue/read_ahead_kb
+echo "vm.swappiness=0" >>/etc/sysctl.conf
+# set SSD to noop, set HDD to cfq
+echo noop > /sys/block/sda/queue/scheduler
+echo cfq > /sys/block/sdb/queue/scheduler
+echo 1024 > /sys/block/sda/queue/nr_requests
+echo 1024 > /sys/block/sdb/queue/nr_requests
+export PATH=/usr/local/lib:$PATH
+export LD_LIBRARY_PATH=/usr/local/lib
+export LD_RUN_PATH=/usr/local/lib
+export LD_PRELOAD="/usr/lib/libtcmalloc.so"
+exit 0
+
+
+##如果有扩充的LVM分区，可能会导致失败，需要提前清理(fdisk -l /dev/sdb查看磁盘的大小，用dd命令分别对磁盘的开头和末尾部分进行清除操作)，并在清理后重启
+
+#ansible -m ping all -k
+
+systemctl status ceph-mon@jyt-sdp1.service
+journalctl -xe
+systemctl reset-failed ceph-mon@jyt-sdp1.service
+
+ceph -s
+ceph df
+ceph osd df tree
+ceph osd tree
+ceph osd tree -f json
+ceph osd pool ls
+ceph osd pool get images all
+ceph auth list
+rados bench -t 32 -p volumes 1800 write --no-cleanup
+
+---------------------------------------------出错后删除重建ceph节点。。。
+# ceph -s
+# ceph osd tree
+ID CLASS WEIGHT  TYPE NAME         STATUS   REWEIGHT PRI-AFF
+-1       1.74304 root default
+-3       1.74304     host jyt-sdp1
+ 3   ssd 0.21770         osd.3         down  1.00000 1.00000
+ 4   ssd 0.21770         osd.4     down+out        0 1.00000
+ 5   ssd 0.21819         osd.5     down+out        0 1.00000
+ 6   ssd 0.21819         osd.6     down+out        0 1.00000
+ 7   ssd 0.21819         osd.7     down+out        0 1.00000
+ 8   ssd 0.21770         osd.8       up+out        0 1.00000
+ 9   ssd 0.21770         osd.9       up+out        0 1.00000
+10   ssd 0.21770         osd.10          up  1.00000 1.00000
+ 0             0 osd.0             down+out        0 1.00000
+ 1             0 osd.1             down+out        0 1.00000
+ 2             0 osd.2             down+out        0 1.00000
+# ps aux|grep ceph
+# ceph osd tree
+ID CLASS WEIGHT  TYPE NAME         STATUS   REWEIGHT PRI-AFF
+-1       1.74304 root default
+-3       1.74304     host jyt-sdp1
+ 3   ssd 0.21770         osd.3         down  1.00000 1.00000
+ 4   ssd 0.21770         osd.4     down+out        0 1.00000
+ 5   ssd 0.21819         osd.5     down+out        0 1.00000
+ 6   ssd 0.21819         osd.6     down+out        0 1.00000
+ 7   ssd 0.21819         osd.7     down+out        0 1.00000
+ 8   ssd 0.21770         osd.8       up+out        0 1.00000
+ 9   ssd 0.21770         osd.9       up+out        0 1.00000
+10   ssd 0.21770         osd.10          up  1.00000 1.00000
+ 0             0 osd.0             down+out        0 1.00000
+ 1             0 osd.1             down+out        0 1.00000
+ 2             0 osd.2             down+out        0 1.00000
+# ceph osd rm osd.0
+# ceph osd rm osd.1
+# ceph osd rm osd.2
+# ceph osd rm osd.3
+# ceph osd rm osd.4
+# ceph osd rm osd.5
+# ceph osd rm osd.6
+# ceph osd rm osd.7
+# ceph osd rm osd.8
+# ceph osd rm osd.9
+# ceph osd tree
+ID CLASS WEIGHT  TYPE NAME         STATUS REWEIGHT PRI-AFF
+-1       1.74304 root default
+-3       1.74304     host jyt-sdp1
+ 3   ssd 0.21770         osd.3        DNE        0
+ 4   ssd 0.21770         osd.4        DNE        0
+ 5   ssd 0.21819         osd.5        DNE        0
+ 6   ssd 0.21819         osd.6        DNE        0
+ 7   ssd 0.21819         osd.7        DNE        0
+ 8   ssd 0.21770         osd.8        DNE        0
+ 9   ssd 0.21770         osd.9        DNE        0
+10   ssd 0.21770         osd.10        up  1.00000 1.00000
+# ceph auth del osd.0
+# ceph auth del osd.1
+# ceph auth del osd.2
+# ceph auth del osd.3
+# ceph auth del osd.4
+# ceph auth del osd.5
+# ceph auth del osd.6
+# ceph auth del osd.7
+# ceph auth del osd.8
+# ceph auth del osd.9
+# ceph osd tree
+ID CLASS WEIGHT  TYPE NAME         STATUS REWEIGHT PRI-AFF
+-1       1.74304 root default
+-3       1.74304     host jyt-sdp1
+ 3   ssd 0.21770         osd.3        DNE        0
+ 4   ssd 0.21770         osd.4        DNE        0
+ 5   ssd 0.21819         osd.5        DNE        0
+ 6   ssd 0.21819         osd.6        DNE        0
+ 7   ssd 0.21819         osd.7        DNE        0
+ 8   ssd 0.21770         osd.8        DNE        0
+ 9   ssd 0.21770         osd.9        DNE        0
+10   ssd 0.21770         osd.10        up  1.00000 1.00000
+# ceph osd crush remove osd.3
+# ceph osd crush remove osd.4
+# ceph osd crush remove osd.5
+# ceph osd crush remove osd.6
+# ceph osd crush remove osd.7
+# ceph osd crush remove osd.8
+# ceph osd crush remove osd.9
+# ceph osd tree
+ID CLASS WEIGHT  TYPE NAME         STATUS REWEIGHT PRI-AFF
+-1       0.21770 root default
+-3       0.21770     host jyt-sdp1
+10   ssd 0.21770         osd.10        up  1.00000 1.00000
+# ceph -s
+  cluster:
+    id:     7954ca80-bb30-456e-a68b-e21e4df08e19
+    health: HEALTH_WARN
+            Reduced data availability: 256 pgs inactive
+            Degraded data redundancy: 256 pgs unclean
+
+  services:
+    mon: 1 daemons, quorum jyt-sdp1
+    mgr: jyt-sdp1(active)
+    osd: 1 osds: 1 up, 1 in
+
+  data:
+    pools:   3 pools, 256 pgs
+    objects: 0 objects, 0 bytes
+    usage:   2050 MB used, 220 GB / 222 GB avail
+    pgs:     100.000% pgs unknown
+             256 unknown
+# rados df
+POOL_NAME USED OBJECTS CLONES COPIES MISSING_ON_PRIMARY UNFOUND DEGRADED RD_OPS RD WR_OPS WR
+images       0       0      0      0                  0       0        0      0  0      0  0
+vms          0       0      0      0                  0       0        0      0  0      0  0
+volumes      0       0      0      0                  0       0        0      0  0      0  0
+
+total_objects    0
+total_used       2050M
+total_avail      220G
+total_space      222G
+# ceph osd pool delete images images --yes-i-really-really-mean-it
+# ceph osd pool delete vms vms --yes-i-really-really-mean-it
+# ceph osd pool delete volumes volumes --yes-i-really-really-mean-it
+# ceph -s
+  cluster:
+    id:     7954ca80-bb30-456e-a68b-e21e4df08e19
+    health: HEALTH_OK
+
+  services:
+    mon: 1 daemons, quorum jyt-sdp1
+    mgr: jyt-sdp1(active)
+    osd: 1 osds: 1 up, 1 in
+
+  data:
+    pools:   0 pools, 0 pgs
+    objects: 0 objects, 0 bytes
+    usage:   2050 MB used, 220 GB / 222 GB avail
+    pgs:
+# ceph osd pool create test_pool 128 128
+# rbd create test_pool/test_image --size 5G
+# ceph -s
+  cluster:
+    id:     7954ca80-bb30-456e-a68b-e21e4df08e19
+    health: HEALTH_WARN
+            application not enabled on 1 pool(s)
+
+  services:
+    mon: 1 daemons, quorum jyt-sdp1
+    mgr: jyt-sdp1(active)
+    osd: 1 osds: 1 up, 1 in
+
+  data:
+    pools:   1 pools, 128 pgs
+    objects: 4 objects, 35 bytes
+    usage:   2050 MB used, 220 GB / 222 GB avail
+    pgs:     128 active+clean
+# rados df
+POOL_NAME USED OBJECTS CLONES COPIES MISSING_ON_PRIMARY UNFOUND DEGRADED RD_OPS RD   WR_OPS WR
+test_pool   35       4      0      4                  0       0        0      5 3072      5 3072
+
+total_objects    4
+total_used       2050M
+total_avail      220G
+total_space      222G
+#
